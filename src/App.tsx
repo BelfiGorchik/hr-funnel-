@@ -53,6 +53,16 @@ export default function App() {
   const [chartType, setChartType] = useState<'recharts' | 'chartjs'>('recharts');
   const [theme, setTheme] = useState<'dark' | 'light'>('dark');
   const [integrationModalOpen, setIntegrationModalOpen] = useState(false);
+  const [dbSettingsModalOpen, setDbSettingsModalOpen] = useState(false);
+  const [dbHost, setDbHost] = useState('localhost');
+  const [dbPort, setDbPort] = useState('3306');
+  const [dbUser, setDbUser] = useState('root');
+  const [dbPassword, setDbPassword] = useState('');
+  const [dbNameInput, setDbNameInput] = useState('hr_funnel_db');
+  const [dbConfigError, setDbConfigError] = useState<string | null>(null);
+  const [dbConfigSuccess, setDbConfigSuccess] = useState<string | null>(null);
+  const [isTestingConnection, setIsTestingConnection] = useState(false);
+  const [copiedTunnelCmd, setCopiedTunnelCmd] = useState<'ngrok' | 'lt' | null>(null);
   const [integrationTab, setIntegrationTab] = useState<'iframe' | 'api' | 'webhooks'>('iframe');
   const [apiToken, setApiToken] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
@@ -372,7 +382,11 @@ export default function App() {
   ]);
 
   // Database status states
-  const [dbStatus, setDbStatus] = useState<{ connected: boolean; dbName: string }>({
+  const [dbStatus, setDbStatus] = useState<{ 
+    connected: boolean; 
+    dbName: string;
+    config?: { host: string; port: number; user: string; database: string }
+  }>({
     connected: false,
     dbName: 'СУБД: Определение...'
   });
@@ -390,8 +404,15 @@ export default function App() {
         const data = await res.json();
         setDbStatus({
           connected: data.connected,
-          dbName: data.connected ? 'СУБД: XAMPP MySQL (Активна)' : 'СУБД: Имитация (БД Offline)'
+          dbName: data.connected ? `СУБД: ${data.config?.database || 'hr_funnel_db'} (Активна)` : 'СУБД: Имитация (БД Offline)',
+          config: data.config
         });
+        if (data.config) {
+          setDbHost(data.config.host || 'localhost');
+          setDbPort(String(data.config.port || '3306'));
+          setDbUser(data.config.user || 'root');
+          setDbNameInput(data.config.database || 'hr_funnel_db');
+        }
       } else {
         setDbStatus({
           connected: false,
@@ -457,6 +478,99 @@ export default function App() {
       setTimeout(() => {
         setDbNotification(null);
       }, 5000);
+    }
+  };
+
+  const handleCopyCommand = (command: string, type: 'ngrok' | 'lt') => {
+    navigator.clipboard.writeText(command);
+    setCopiedTunnelCmd(type);
+    setTimeout(() => setCopiedTunnelCmd(null), 2000);
+  };
+
+  const handleHostInputChange = (val: string) => {
+    let cleaned = val.trim();
+    
+    if (cleaned.includes('://')) {
+      try {
+        const urlToParse = cleaned.startsWith('tcp://') ? cleaned.replace('tcp://', 'http://') : cleaned;
+        const parsed = new URL(urlToParse);
+        
+        if (parsed.hostname) {
+          setDbHost(parsed.hostname);
+        }
+        if (parsed.port) {
+          setDbPort(parsed.port);
+        }
+        if (parsed.username) {
+          setDbUser(parsed.username);
+        }
+        if (parsed.password) {
+          setDbPassword(parsed.password);
+        }
+        if (parsed.pathname && parsed.pathname !== '/') {
+          setDbNameInput(parsed.pathname.replace(/^\//, ''));
+        }
+        return;
+      } catch (e) {
+        // Fallback
+      }
+    }
+
+    const hostPortRegex = /^([^/:]+):(\d+)$/;
+    const match = cleaned.match(hostPortRegex);
+    if (match) {
+      setDbHost(match[1]);
+      setDbPort(match[2]);
+      return;
+    }
+
+    setDbHost(val);
+  };
+
+  const handleSaveDbSettings = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsTestingConnection(true);
+    setDbConfigError(null);
+    setDbConfigSuccess(null);
+
+    const h = dbHost.trim().toLowerCase();
+    const isLocal = ['localhost', '127.0.0.1', '::1', '0.0.0.0'].includes(h) || h.endsWith('.local');
+    if (isLocal) {
+      setDbConfigError('Подключение отклонено: облако заблокировано встроенным диагностом. Сервер не сможет связаться с локальным адресом. Используйте адрес публичного туннеля (например, tcp://0.tcp.ngrok.io или аналогичный).');
+      setIsTestingConnection(false);
+      return;
+    }
+
+    try {
+      const res = await fetch('/api/analytics/config-db', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          host: dbHost,
+          port: Number(dbPort),
+          user: dbUser,
+          password: dbPassword,
+          database: dbNameInput
+        })
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setDbConfigSuccess(data.message || 'Подключение успешно установлено!');
+        await fetchDbStatus();
+        await fetchVacancies();
+        await fetchAnalytics();
+        await fetchCandidatesList();
+        setTimeout(() => {
+          setDbSettingsModalOpen(false);
+          setDbConfigSuccess(null);
+        }, 1500);
+      } else {
+        setDbConfigError(data.error || 'Произошла ошибка при подключении к СУБД.');
+      }
+    } catch (err: any) {
+      setDbConfigError(`Сетевая ошибка при проверке: ${err.message}`);
+    } finally {
+      setIsTestingConnection(false);
     }
   };
 
@@ -1718,6 +1832,207 @@ Allow from env=valid_token
         </div>
       )}
 
+      {dbSettingsModalOpen && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-md overflow-hidden shadow-2xl transition-all duration-300">
+            {/* Header */}
+            <div className="px-6 py-4 border-b border-slate-800 flex justify-between items-center bg-slate-950/40">
+              <h3 className="text-lg font-semibold text-white flex items-center">
+                <Database className="w-5 h-5 text-blue-400 mr-2" />
+                Настройки подключения СУБД
+              </h3>
+              <button onClick={() => setDbSettingsModalOpen(false)} className="text-slate-400 hover:text-white transition-colors cursor-pointer">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Form */}
+            <form onSubmit={handleSaveDbSettings}>
+              <div className="p-6 space-y-4">
+                <div className="text-xs text-slate-400 leading-relaxed bg-blue-950/30 border border-blue-500/20 p-3 rounded-lg flex gap-2">
+                  <Info className="w-4 h-4 text-blue-400 flex-shrink-0 mt-0.5" />
+                  <span>
+                    Настройка параметров подключения к СУБД проекта (MySQL). По умолчанию используется встроенная имитация базы данных.
+                  </span>
+                </div>
+
+                {dbConfigError && (
+                  <div className="p-3 bg-red-950/45 border border-red-500/30 text-red-300 rounded-lg text-xs leading-normal flex items-start gap-2 animate-fade-in">
+                    <AlertTriangle className="w-4 h-4 text-red-400 flex-shrink-0 mt-0.5" />
+                    <span>{dbConfigError}</span>
+                  </div>
+                )}
+
+                {dbConfigSuccess && (
+                  <div className="p-3 bg-emerald-950/45 border border-emerald-500/30 text-emerald-300 rounded-lg text-xs leading-normal flex items-start gap-2 animate-fade-in">
+                    <CheckCircle className="w-4 h-4 text-emerald-400 flex-shrink-0 mt-0.5" />
+                    <span>{dbConfigSuccess}</span>
+                  </div>
+                )}
+
+                <div className="grid grid-cols-3 gap-3">
+                  <div className="col-span-2 space-y-1.5">
+                    <label className="text-[10px] font-mono uppercase tracking-wider text-slate-400">Хост (IP / Домен)</label>
+                    <input 
+                      type="text" 
+                      required
+                      placeholder="e.g. mysql.example.com"
+                      value={dbHost} 
+                      onChange={(e) => handleHostInputChange(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-800 focus:border-blue-500 rounded-lg px-3 py-2 text-xs text-white placeholder-slate-600 outline-none"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-mono uppercase tracking-wider text-slate-400">Порт</label>
+                    <input 
+                      type="number" 
+                      required
+                      placeholder="3306"
+                      value={dbPort} 
+                      onChange={(e) => setDbPort(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-800 focus:border-blue-500 rounded-lg px-3 py-2 text-xs text-white placeholder-slate-600 outline-none"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-mono uppercase tracking-wider text-slate-400">Имя пользователя (User)</label>
+                  <input 
+                    type="text" 
+                    required
+                    placeholder="root"
+                    value={dbUser} 
+                    onChange={(e) => setDbUser(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-800 focus:border-blue-500 rounded-lg px-3 py-2 text-xs text-white placeholder-slate-600 outline-none"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-mono uppercase tracking-wider text-slate-400">Пароль (Password)</label>
+                  <input 
+                    type="password" 
+                    placeholder="Введите пароль подключения"
+                    value={dbPassword} 
+                    onChange={(e) => setDbPassword(e.target.value)}
+                    className="w-full bg-[#090d16] border border-slate-800 focus:border-blue-500 rounded-lg px-3 py-2 text-xs text-white placeholder-slate-650 outline-none"
+                  />
+                </div>
+
+                 <div className="space-y-1.5">
+                  <label className="text-[10px] font-mono uppercase tracking-wider text-slate-400">Имя базы данных (Database)</label>
+                  <input 
+                    type="text" 
+                    required
+                    placeholder="hr_funnel_db"
+                    value={dbNameInput} 
+                    onChange={(e) => setDbNameInput(e.target.value)}
+                    className="w-full bg-[#090d16] border border-slate-800 focus:border-blue-500 rounded-lg px-3 py-2 text-xs text-white placeholder-slate-600 outline-none"
+                  />
+                </div>
+
+                {/* Автоматическое тестирование сетевых маршрутов (Ping/Healthcheck) */}
+                {(() => {
+                  const isLocal = ['localhost', '127.0.0.1', '::1', '0.0.0.0'].includes(dbHost.trim().toLowerCase()) || dbHost.trim().toLowerCase().endsWith('.local');
+                  if (!isLocal) return null;
+                  return (
+                    <div className="p-3.5 bg-amber-950/45 border border-amber-500/30 rounded-xl space-y-2.5 text-xs animate-fade-in">
+                      <div className="flex items-center gap-2 text-amber-400 font-medium pb-2 border-b border-amber-500/10">
+                        <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+                        <span>Автодиагностика маршрута: Localhost</span>
+                      </div>
+                      <p className="text-slate-300 leading-relaxed text-[11px]">
+                        Введен локальный хост. Облачный контейнер не имеет прямого сетевого пути к вашему <code>localhost</code>. Потребуется запустить внешний туннель для проброса порта <code>{dbPort || '3306'}</code>.
+                      </p>
+                      <div className="space-y-2">
+                        <div className="text-[10px] text-slate-400 font-mono uppercase tracking-wider">Запустите в терминале:</div>
+                        
+                        <div className="space-y-2 col-span-1">
+                          {/* Ngrok option */}
+                          <div className="flex items-center justify-between bg-slate-950 p-2 rounded border border-slate-850 gap-2">
+                            <span className="font-mono text-[10px] text-emerald-400 overflow-x-auto whitespace-nowrap scrollbar-none">ngrok tcp {dbPort || '3306'}</span>
+                            <button
+                              type="button"
+                              onClick={() => handleCopyCommand(`ngrok tcp ${dbPort || '3306'}`, 'ngrok')}
+                              className="text-[10px] text-slate-300 hover:text-white flex items-center gap-1 bg-slate-800 hover:bg-slate-705 border border-slate-700 px-2 py-1 rounded transition-colors cursor-pointer flex-shrink-0"
+                            >
+                              {copiedTunnelCmd === 'ngrok' ? (
+                                <>
+                                  <Check className="w-3 h-3 text-emerald-400" />
+                                  <span>Готово!</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Copy className="w-3 h-3" />
+                                  <span>Копировать</span>
+                                </>
+                              )}
+                            </button>
+                          </div>
+
+                          {/* Localtunnel option */}
+                          <div className="flex items-center justify-between bg-slate-950 p-2 rounded border border-slate-850 gap-2">
+                            <span className="font-mono text-[10px] text-emerald-400 overflow-x-auto whitespace-nowrap scrollbar-none">npx localtunnel --port {dbPort || '3306'}</span>
+                            <button
+                              type="button"
+                              onClick={() => handleCopyCommand(`npx localtunnel --port ${dbPort || '3306'}`, 'lt')}
+                              className="text-[10px] text-slate-300 hover:text-white flex items-center gap-1 bg-slate-800 hover:bg-slate-705 border border-slate-700 px-2 py-1 rounded transition-colors cursor-pointer flex-shrink-0"
+                            >
+                              {copiedTunnelCmd === 'lt' ? (
+                                <>
+                                  <Check className="w-3 h-3 text-emerald-400" />
+                                  <span>Готово!</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Copy className="w-3 h-3" />
+                                  <span>Копировать</span>
+                                </>
+                              )}
+                            </button>
+                          </div>
+                        </div>
+
+                        <div className="text-[10px] text-slate-400 leading-normal pt-1 flex items-start gap-1">
+                          <Info className="w-3 h-3 text-amber-500/80 flex-shrink-0 mt-0.5" />
+                          <span>
+                            После запуска скопируйте полученный хост (например, <code>0.tcp.ngrok.io</code>) и порт в форму выше.
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
+
+              {/* Footer */}
+              <div className="px-6 py-4 border-t border-slate-800 bg-slate-950/30 flex justify-end gap-2.5">
+                <button 
+                  type="button"
+                  onClick={() => setDbSettingsModalOpen(false)}
+                  className="px-4 py-2 text-xs font-semibold text-slate-300 hover:text-white transition-colors cursor-pointer"
+                >
+                  Отмена
+                </button>
+                <button 
+                  type="submit"
+                  disabled={isTestingConnection}
+                  className="px-4 py-2 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-500 disabled:bg-blue-800 disabled:opacity-50 rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer"
+                >
+                  {isTestingConnection ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      Проверка связи...
+                    </>
+                  ) : (
+                    'Проверить и сохранить'
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {dbNotification && (
         <div className={`mb-6 p-4 rounded-xl border flex items-center gap-3 transition-all animate-fade-in ${
           dbNotification.type === 'success' 
@@ -1770,18 +2085,28 @@ Allow from env=valid_token
           </div>
           <div className="mt-4 pt-3 border-t border-slate-800/60 flex items-center justify-between gap-2 print:hidden">
             <span className="text-[10px] text-slate-500 uppercase tracking-wider font-mono">VKR-DB-GATEWAY</span>
-            <button 
-              disabled={isImporting}
-              onClick={handleImportDatabase}
-              className={`text-xs px-2.5 py-1.5 rounded-lg border font-medium flex items-center gap-1.5 transition-colors cursor-pointer ${
-                isImporting 
-                  ? 'bg-slate-800 border-slate-700 text-slate-500 cursor-not-allowed'
-                  : 'bg-purple-600/10 hover:bg-purple-600/20 border-purple-500/30 text-purple-300'
-              }`}
-            >
-              <RefreshCw className={`w-3 h-3 ${isImporting ? 'animate-spin' : ''}`} />
-              {isImporting ? 'Импорт...' : 'Импортировать СУБД'}
-            </button>
+            <div className="flex items-center gap-2">
+              <button 
+                onClick={() => setDbSettingsModalOpen(true)}
+                className="text-xs px-2.5 py-1.5 rounded-lg border border-slate-700 hover:bg-slate-800 bg-slate-900 text-slate-300 font-medium flex items-center gap-1.5 transition-colors cursor-pointer"
+                title="Настройки подключения к MySQL"
+              >
+                <Database className="w-3 h-3 text-blue-400" />
+                Настроить БД
+              </button>
+              <button 
+                disabled={isImporting}
+                onClick={handleImportDatabase}
+                className={`text-xs px-2.5 py-1.5 rounded-lg border font-medium flex items-center gap-1.5 transition-colors cursor-pointer ${
+                  isImporting 
+                    ? 'bg-slate-800 border-slate-700 text-slate-500 cursor-not-allowed'
+                    : 'bg-purple-600/10 hover:bg-purple-600/20 border-purple-500/30 text-purple-300'
+                }`}
+              >
+                <RefreshCw className={`w-3 h-3 ${isImporting ? 'animate-spin' : ''}`} />
+                {isImporting ? 'Импорт...' : 'Импортировать СУБД'}
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -1851,6 +2176,10 @@ Allow from env=valid_token
                   indexAxis: 'y' as const,
                   responsive: true,
                   maintainAspectRatio: false,
+                  interaction: {
+                    mode: 'index',
+                    intersect: false,
+                  },
                   onHover: (event, chartElement) => {
                     if (event.native && event.native.target) {
                       (event.native.target as HTMLElement).style.cursor = chartElement[0] ? 'pointer' : 'default';
@@ -1949,6 +2278,10 @@ Allow from env=valid_token
                 options={{
                   responsive: true,
                   maintainAspectRatio: false,
+                  interaction: {
+                    mode: 'index',
+                    intersect: false,
+                  },
                   onHover: (event, chartElement) => {
                     if (event.native && event.native.target) {
                       (event.native.target as HTMLElement).style.cursor = chartElement[0] ? 'pointer' : 'default';

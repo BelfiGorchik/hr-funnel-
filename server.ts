@@ -2,6 +2,9 @@ import express from 'express';
 import path from 'path';
 import { createServer as createViteServer } from 'vite';
 import mysql from 'mysql2/promise';
+import dotenv from 'dotenv';
+
+dotenv.config();
 
 // Описание этапов
 const stages = [
@@ -29,12 +32,18 @@ const vacanciesListFallback = [
 
 let useRealMySQL = false;
 
-// Подключение к MySQL в XAMPP
-const pool = mysql.createPool({
-  host: 'localhost',
-  user: 'root',
-  password: '', 
-  database: 'hr_funnel_db',
+// Текущие конфигурации подключения к СУБД
+let currentDbConfig = {
+  host: process.env.DB_HOST || 'localhost',
+  user: process.env.DB_USER || 'root',
+  password: process.env.DB_PASSWORD || '', 
+  database: process.env.DB_DATABASE || 'hr_funnel_db',
+  port: Number(process.env.DB_PORT) || 3306,
+};
+
+// Подключение к MySQL
+let pool = mysql.createPool({
+  ...currentDbConfig,
   waitForConnections: true,
   connectionLimit: 10,
   queueLimit: 0
@@ -742,8 +751,67 @@ async function startServer() {
   app.get('/api/analytics/status', (req, res) => {
     res.json({
       connected: useRealMySQL,
-      dbName: useRealMySQL ? 'hr_funnel_db (XAMPP MySQL)' : 'Встроенная симуляция (память)'
+      dbName: useRealMySQL ? `${currentDbConfig.database} (${currentDbConfig.host}:${currentDbConfig.port})` : 'Встроенная симуляция (БД Offline)',
+      config: {
+        host: currentDbConfig.host,
+        port: currentDbConfig.port,
+        user: currentDbConfig.user,
+        database: currentDbConfig.database
+      }
     });
+  });
+
+  // API Настройки подключения к БД
+  app.post('/api/analytics/config-db', async (req, res) => {
+    const { host, port, user, password, database } = req.body;
+    try {
+      if (!host || !user || !database) {
+        return res.status(400).json({ success: false, error: 'Хост, пользователь и имя базы данных обязательны.' });
+      }
+
+      // Close previous pool if possible
+      try {
+        await pool.end();
+      } catch (e) {
+        console.log("Error closing old pool:", e);
+      }
+
+      currentDbConfig = {
+        host,
+        port: Number(port) || 3306,
+        user,
+        password: password || '',
+        database
+      };
+
+      // Create new pool
+      pool = mysql.createPool({
+        ...currentDbConfig,
+        waitForConnections: true,
+        connectionLimit: 10,
+        queueLimit: 0
+      });
+
+      // Try connection
+      const connection = await pool.getConnection();
+      connection.release();
+
+      useRealMySQL = true;
+
+      // Automatically try to initialize DB tables if they don't exist
+      await checkAndInitDatabase(false);
+
+      res.json({ 
+        success: true, 
+        message: `Подключение к базе данных ${database} на ${host}:${port} успешно установлено!` 
+      });
+    } catch (err: any) {
+      useRealMySQL = false;
+      res.status(500).json({ 
+        success: false, 
+        error: `Не удалось подключиться к базе данных: ${err.message}` 
+      });
+    }
   });
 
   // API списка вакансий (динамически из БД)
