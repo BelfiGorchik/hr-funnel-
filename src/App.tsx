@@ -570,6 +570,15 @@ export default function App() {
     }
   };
 
+  const handleDownloadSqlDump = () => {
+    const a = document.createElement('a');
+    a.href = '/api/analytics/export-sql';
+    a.download = 'hr_funnel_db_dump.sql';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  };
+
   const handleCopyCommand = (command: string, type: 'ngrok' | 'lt') => {
     navigator.clipboard.writeText(command);
     setCopiedTunnelCmd(type);
@@ -2662,9 +2671,9 @@ Allow from env=valid_token
               {dbStatus.connected ? 'Режим: АКТИВНА (ВКР база)' : 'Режим: ИМИТАЦИЯ (БД OFFLINE)'}
             </div>
           </div>
-          <div className="mt-4 pt-3 border-t border-slate-800/60 flex items-center justify-between gap-2 print:hidden">
+          <div className="mt-4 pt-3 border-t border-slate-800/60 flex flex-col xl:flex-row xl:items-center justify-between gap-3 print:hidden">
             <span className="text-[10px] text-slate-500 uppercase tracking-wider font-mono">VKR-DB-GATEWAY</span>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <button 
                 onClick={() => setDbSettingsModalOpen(true)}
                 className="text-xs px-2.5 py-1.5 rounded-lg border border-slate-700 hover:bg-slate-800 bg-slate-900 text-slate-300 font-medium flex items-center gap-1.5 transition-colors cursor-pointer"
@@ -2684,6 +2693,14 @@ Allow from env=valid_token
               >
                 <RefreshCw className={`w-3 h-3 ${isImporting ? 'animate-spin' : ''}`} />
                 {isImporting ? 'Импорт...' : 'Импортировать СУБД'}
+              </button>
+              <button 
+                onClick={handleDownloadSqlDump}
+                className="text-xs px-2.5 py-1.5 rounded-lg border border-emerald-500/30 hover:bg-emerald-600/20 bg-emerald-600/10 text-emerald-400 font-medium flex items-center gap-1.5 transition-colors cursor-pointer"
+                title="Экспортировать полную базу данных в SQL-дамп для развертывания в phpMyAdmin"
+              >
+                <Download className="w-3 h-3" />
+                Экспорт .SQL
               </button>
             </div>
           </div>
@@ -2920,7 +2937,7 @@ Allow from env=valid_token
               />
             ) : (
               <ResponsiveContainer width="100%" height="100%">
-                <RechartsBarChart data={delaysData} margin={{ top: 20, right: 30, left: 0, bottom: 40 }}>
+                <RechartsBarChart data={delaysData} margin={{ top: 20, right: 10, left: -10, bottom: 70 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke={theme === 'dark' ? '#1e293b' : '#e2e8f0'} vertical={false} />
                   <XAxis 
                     dataKey="stage" 

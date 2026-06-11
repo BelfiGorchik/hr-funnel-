@@ -976,6 +976,201 @@ CREATE INDEX idx_history_date ON Application_History(transition_date);
     }
   });
 
+  // API экспорта полной структуры и данных СУБД в формате .sql
+  app.get('/api/analytics/export-sql', async (req, res) => {
+    try {
+      let stagesData: any[] = [];
+      let recruitersData: any[] = [];
+      let vacanciesData: any[] = [];
+      let candidatesData: any[] = [];
+      let historyData: any[] = [];
+
+      if (useRealMySQL) {
+        // Извлекаем реальные данные из MySQL
+        const [stagesRows]: any = await pool.query("SELECT * FROM Stages ORDER BY sort_order ASC");
+        stagesData = stagesRows;
+
+        const [recRows]: any = await pool.query("SELECT * FROM Recruiters");
+        recruitersData = recRows;
+
+        const [vacRows]: any = await pool.query("SELECT * FROM Vacancies");
+        vacanciesData = vacRows;
+
+        const [candRows]: any = await pool.query("SELECT * FROM Candidates");
+        candidatesData = candRows;
+
+        const [histRows]: any = await pool.query("SELECT * FROM Application_History ORDER BY id_history ASC");
+        historyData = histRows;
+      } else {
+        // Генерируем из fallback-коллекций в памяти
+        stagesData = stages.map(s => ({ id_stage: s.id, stage_name: s.name, sort_order: s.order }));
+        recruitersData = [{ id_recruiter: 1, full_name: 'Герасимов В.В.', email: 'gerasimov@pvguti.ru', is_active: 1 }];
+        vacanciesData = vacanciesListFallback.map(v => ({
+          id_vacancy: v.id,
+          id_recruiter: 1,
+          job_title: v.title,
+          open_date: new Date().toISOString().slice(0, 19).replace('T', ' '),
+          close_date: null,
+          status: 'В работе'
+        }));
+        candidatesData = candidatesFallback;
+        historyData = appHistoryFallback.map((h, i) => ({
+          id_history: i + 1,
+          id_candidate: h.id_candidate,
+          id_vacancy: h.id_vacancy,
+          id_stage: h.id_stage,
+          transition_date: new Date(h.transition_date).toISOString().slice(0, 19).replace('T', ' '),
+          status: 'В процессе'
+        }));
+      }
+
+      // Формируем контент SQL-скрипта
+      let sql = `-- ==========================================
+-- СТРУКТУРА И ДАННЫЕ СУБД MYSQL ДЛЯ ДИПЛОМА
+-- Проектирование модуля для анализа воронки найма
+-- Разработано: Комаров М.Н., Группа ПИ-21
+-- Сгенерировано системой: ${new Date().toLocaleDateString('ru-RU')}
+-- ==========================================
+
+CREATE DATABASE IF NOT EXISTS \`hr_funnel_db\` DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+USE \`hr_funnel_db\`;
+
+SET FOREIGN_KEY_CHECKS = 0;
+DROP TABLE IF EXISTS \`Application_History\`;
+DROP TABLE IF EXISTS \`Candidates\`;
+DROP TABLE IF EXISTS \`Vacancies\`;
+DROP TABLE IF EXISTS \`Recruiters\`;
+DROP TABLE IF EXISTS \`Stages\`;
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- --------------------------------------------------------
+-- 1. Таблица \`Stages\` (Справочник этапов воронки)
+-- --------------------------------------------------------
+CREATE TABLE \`Stages\` (
+  \`id_stage\` INT NOT NULL,
+  \`stage_name\` VARCHAR(100) NOT NULL,
+  \`sort_order\` INT NOT NULL,
+  PRIMARY KEY (\`id_stage\`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+`;
+
+      // Вставляем этапы
+      if (stagesData.length > 0) {
+        sql += `INSERT INTO \`Stages\` (\`id_stage\`, \`stage_name\`, \`sort_order\`) VALUES\n`;
+        sql += stagesData.map(s => `(${s.id_stage}, '${s.stage_name.replace(/'/g, "''")}', ${s.sort_order})`).join(',\n') + ';\n\n';
+      }
+
+      sql += `-- --------------------------------------------------------
+-- 2. Таблица \`Recruiters\` (Рекрутеры)
+-- --------------------------------------------------------
+CREATE TABLE \`Recruiters\` (
+  \`id_recruiter\` INT NOT NULL AUTO_INCREMENT,
+  \`full_name\` VARCHAR(255) NOT NULL,
+  \`email\` VARCHAR(100) NOT NULL,
+  \`is_active\` TINYINT DEFAULT 1,
+  PRIMARY KEY (\`id_recruiter\`),
+  UNIQUE KEY \`email\` (\`email\`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+`;
+
+      // Вставляем рекрутеров
+      if (recruitersData.length > 0) {
+        sql += `INSERT INTO \`Recruiters\` (\`id_recruiter\`, \`full_name\`, \`email\`, \`is_active\`) VALUES\n`;
+        sql += recruitersData.map(r => `(${r.id_recruiter}, '${r.full_name.replace(/'/g, "''")}', '${r.email.replace(/'/g, "''")}', ${r.is_active || 1})`).join(',\n') + ';\n\n';
+      }
+
+      sql += `-- --------------------------------------------------------
+-- 3. Таблица \`Vacancies\` (Вакансии)
+-- --------------------------------------------------------
+CREATE TABLE \`Vacancies\` (
+  \`id_vacancy\` INT NOT NULL AUTO_INCREMENT,
+  \`id_recruiter\` INT NOT NULL,
+  \`job_title\` VARCHAR(255) NOT NULL,
+  \`open_date\` DATETIME NOT NULL,
+  \`close_date\` DATETIME DEFAULT NULL,
+  \`status\` VARCHAR(50) DEFAULT 'В работе',
+  PRIMARY KEY (\`id_vacancy\`),
+  CONSTRAINT \`fk_v_recruiter\` FOREIGN KEY (\`id_recruiter\`) REFERENCES \`Recruiters\` (\`id_recruiter\`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+`;
+
+      // Вставляем вакансии
+      if (vacanciesData.length > 0) {
+        sql += `INSERT INTO \`Vacancies\` (\`id_vacancy\`, \`id_recruiter\`, \`job_title\`, \`open_date\`, \`close_date\`, \`status\`) VALUES\n`;
+        sql += vacanciesData.map(v => {
+          const openStr = v.open_date instanceof Date ? v.open_date.toISOString().slice(0, 19).replace('T', ' ') : String(v.open_date);
+          const closeStr = v.close_date ? (v.close_date instanceof Date ? `'${v.close_date.toISOString().slice(0, 19).replace('T', ' ')}'` : `'${v.close_date}'`) : 'NULL';
+          return `(${v.id_vacancy}, ${v.id_recruiter}, '${v.job_title.replace(/'/g, "''")}', '${openStr}', ${closeStr}, '${(v.status || "В работе").replace(/'/g, "''")}')`;
+        }).join(',\n') + ';\n\n';
+      }
+
+      sql += `-- --------------------------------------------------------
+-- 4. Таблица \`Candidates\` (Кандидаты)
+-- --------------------------------------------------------
+CREATE TABLE \`Candidates\` (
+  \`id_candidate\` INT NOT NULL AUTO_INCREMENT,
+  \`full_name\` VARCHAR(255) NOT NULL,
+  \`phone_number\` VARCHAR(50) NOT NULL,
+  \`source\` VARCHAR(100) NOT NULL,
+  PRIMARY KEY (\`id_candidate\`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+`;
+
+      // Вставляем кандидатов пачками по 500 штук, чтобы избежать перегрузки SQL-парсера
+      if (candidatesData.length > 0) {
+        const batchSize = 500;
+        for (let i = 0; i < candidatesData.length; i += batchSize) {
+          const batch = candidatesData.slice(i, i + batchSize);
+          sql += `INSERT INTO \`Candidates\` (\`id_candidate\`, \`full_name\`, \`phone_number\`, \`source\`) VALUES\n`;
+          sql += batch.map(c => `(${c.id_candidate}, '${c.full_name.replace(/'/g, "''")}', '${c.phone_number.replace(/'/g, "''")}', '${c.source.replace(/'/g, "''")}')`).join(',\n') + ';\n\n';
+        }
+      }
+
+      sql += `-- --------------------------------------------------------
+-- 5. Таблица \`Application_History\` (История движения кандидатов)
+-- --------------------------------------------------------
+CREATE TABLE \`Application_History\` (
+  \`id_history\` INT NOT NULL AUTO_INCREMENT,
+  \`id_candidate\` INT NOT NULL,
+  \`id_vacancy\` INT NOT NULL,
+  \`id_stage\` INT NOT NULL,
+  \`transition_date\` DATETIME NOT NULL,
+  \`status\` VARCHAR(50) DEFAULT 'В процессе',
+  PRIMARY KEY (\`id_history\`),
+  CONSTRAINT \`fk_ah_stage\` FOREIGN KEY (\`id_stage\`) REFERENCES \`Stages\` (\`id_stage\`) ON DELETE CASCADE,
+  CONSTRAINT \`fk_ah_vacancy\` FOREIGN KEY (\`id_vacancy\`) REFERENCES \`Vacancies\` (\`id_vacancy\`) ON DELETE CASCADE,
+  CONSTRAINT \`fk_ah_candidate\` FOREIGN KEY (\`id_candidate\`) REFERENCES \`Candidates\` (\`id_candidate\`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+`;
+
+      // Вставляем историю пачками по 500 штук
+      if (historyData.length > 0) {
+        const batchSize = 500;
+        for (let i = 0; i < historyData.length; i += batchSize) {
+          const batch = historyData.slice(i, i + batchSize);
+          sql += `INSERT INTO \`Application_History\` (\`id_history\`, \`id_candidate\`, \`id_vacancy\`, \`id_stage\`, \`transition_date\`, \`status\`) VALUES\n`;
+          sql += batch.map(h => {
+            const dateStr = h.transition_date instanceof Date ? h.transition_date.toISOString().slice(0, 19).replace('T', ' ') : String(h.transition_date);
+            return `(${h.id_history}, ${h.id_candidate}, ${h.id_vacancy}, ${h.id_stage}, '${dateStr}', '${(h.status || "В процессе").replace(/'/g, "''")}')`;
+          }).join(',\n') + ';\n\n';
+        }
+      }
+
+      // Отдаем как вложенный файл для скачивания
+      res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+      res.setHeader('Content-Disposition', 'attachment; filename="hr_funnel_db_dump.sql"');
+      res.send(sql);
+
+    } catch (err: any) {
+      res.status(500).json({ error: 'Ошибка генерации SQL дампа: ' + err.message });
+    }
+  });
+
   // API Воронки
   app.get('/api/analytics/funnel', async (req, res) => {
     try {
