@@ -424,7 +424,7 @@ export default function App() {
     setApiToken(token);
   };
   
-  const [exportModalState, setExportModalState] = useState<{isOpen: boolean, format: 'csv'|'pdf'|'json'}>({isOpen: false, format: 'csv'});
+  const [exportModalState, setExportModalState] = useState<{isOpen: boolean, format: 'csv'|'pdf'|'json'|'word'}>({isOpen: false, format: 'csv'});
   const [exportConfig, setExportConfig] = useState({
     includeFunnel: true,
     includeDelays: true,
@@ -853,7 +853,7 @@ export default function App() {
     }
   };
 
-  const openExportModal = (format: 'csv' | 'pdf' | 'json') => {
+  const openExportModal = (format: 'csv' | 'pdf' | 'json' | 'word') => {
     setExportModalState({ isOpen: true, format });
   };
 
@@ -862,6 +862,224 @@ export default function App() {
   };
 
   const processExport = () => {
+    if (exportModalState.format === 'word') {
+      closeExportModal();
+      
+      const table1Rows = detailedData.map(row => `
+        <tr>
+          <td style="text-align: center; border: 1px solid #000000; padding: 6px;">${row.sort}</td>
+          <td style="border: 1px solid #000000; padding: 6px;">${row.stage}</td>
+          <td style="text-align: center; border: 1px solid #000000; padding: 6px;">${row.count}</td>
+          <td style="text-align: center; border: 1px solid #000000; padding: 6px;">${row.dropoff}</td>
+          <td style="text-align: center; border: 1px solid #000000; padding: 6px;">${row.conversion}%</td>
+        </tr>
+      `).join('');
+
+      const table2Rows = detailedData.map(row => {
+        const isViolation = row.avg_days > slaThreshold;
+        const statusText = isViolation 
+          ? `SLA превышен на ${(row.avg_days - slaThreshold).toFixed(1)} дн.` 
+          : "В пределах нормы SLA";
+        const statusColor = isViolation ? "#990000" : "#006600";
+        return `
+          <tr>
+            <td style="text-align: center; border: 1px solid #000000; padding: 6px;">${row.sort}</td>
+            <td style="border: 1px solid #000000; padding: 6px;">${row.stage}</td>
+            <td style="text-align: center; border: 1px solid #000000; padding: 6px;">${row.avg_days.toFixed(1)}</td>
+            <td style="text-align: center; border: 1px solid #000000; padding: 6px;">${slaThreshold.toFixed(1)}</td>
+            <td style="text-align: center; border: 1px solid #000000; padding: 6px; color: ${statusColor}; font-weight: bold;">${statusText}</td>
+          </tr>
+        `;
+      }).join('');
+
+      const compiledInsights = insights.map((ins: any) => `
+        <div style="border-left: 3px solid #333333; padding-left: 10px; margin-bottom: 12px;">
+          <strong style="color: #111111;">[Автовывод] ${ins.title}:</strong>
+          <span style="color: #333333;">${ins.text}</span>
+        </div>
+      `).join('');
+
+      const docHtml = `
+      <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">
+      <head>
+        <meta charset="utf-8">
+        <title>Результаты экспериментальной эксплуатации</title>
+        <style>
+          @page {
+            size: A4;
+            margin: 2cm 2cm 2cm 3cm; /* ГОСТ Спецификации полей для ВКР: левое 3см, остальные 2см */
+          }
+          body {
+            font-family: "Times New Roman", Times, serif;
+            font-size: 14pt;
+            line-height: 1.5;
+            color: #000000;
+          }
+          .title {
+            font-size: 16pt;
+            font-weight: bold;
+            text-align: center;
+            margin-bottom: 24pt;
+            text-transform: uppercase;
+          }
+          .section-title {
+            font-size: 14pt;
+            font-weight: bold;
+            margin-top: 18pt;
+            margin-bottom: 12pt;
+            page-break-after: avoid;
+          }
+          p {
+            text-indent: 1.25cm; /* Абзацный отступ ГОСТ 1.25 см */
+            margin-top: 0;
+            margin-bottom: 12pt;
+            text-align: justify; /* Выравнивание по ширине */
+          }
+          table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 12pt;
+            margin-bottom: 12pt;
+            font-size: 12pt;
+          }
+          th {
+            font-weight: bold;
+            background-color: #f2f2f2;
+            border: 1px solid #000000;
+            padding: 6px;
+            text-align: center;
+          }
+          td {
+            border: 1px solid #000000;
+            padding: 6px;
+          }
+          .table-title {
+            font-size: 12pt;
+            font-style: italic;
+            text-align: left;
+            margin-bottom: 6px;
+            text-indent: 0;
+          }
+          .signature-section {
+            margin-top: 40pt;
+            font-size: 12pt;
+            line-height: 1.3;
+          }
+          .signature-table {
+            width: 100%;
+            border: none;
+          }
+          .signature-table td {
+            border: none;
+            padding: 8px;
+          }
+          .page-break {
+            page-break-before: always;
+          }
+        </style>
+      </head>
+      <body>
+        <div class="title">
+          ПРИЛОЖЕНИЕ А<br/>
+          (справочное)<br/>
+          Результаты экспериментальной эксплуатации программного модуля «Анализатор воронки найма»
+        </div>
+
+        <p>Настоящее приложение содержит отчетные материалы по результатам проведения экспериментальной эксплуатации разработанного программного модуля «Анализатор воронки найма» (Recruitment Funnel Analyzer) в рамках выполнения выпускной квалификационной работы.</p>
+        
+        <p>Целью проведения экспериментальной эксплуатации являлась апробация разработанных алгоритмов извлечения, преобразования и загрузки данных (ETL) из реляционных СУБД (MySQL/XAMPP), проверка точности формулирования математических метрик (конверсий, SLA, Time-to-fill) и оценка применимости интерактивных инструментов визуализации в реальных бизнес-процессах управления персоналом (HR-аналитики).</p>
+
+        <div class="section-title">1. Общая характеристика экспериментальной выборки</div>
+        <p>Для проведения экспериментов и расчетов в базу данных была загружена пилотная транзакционная выборка событий движения кандидатов. Общее количество соискателей в анализируемом контуре составило <strong>${totalApplicants} человек</strong>. В результате комплексного прохождения всех этапов отбора до стадии финального трудоустройства (принятый оффер) было доведено <strong>${hiredCount} человек</strong>. Интегральный показатель сквозной конверсии воронки составил <strong>${overallConversion}%</strong>.</p>
+
+        <div class="section-title">2. Анализ конверсии воронки подбора персонала</div>
+        <p>Расчет сквозной и поэтапной конверсий производится на основе отношения числа кандидатов, прошедших на текущий шаг, к численности на предыдущем шаге отбора по формуле:</p>
+        <p style="text-align: center; text-indent: 0;"><em>C<sub>i</sub> = (N<sub>i</sub> / N<sub>i-1</sub>) &times; 100%</em></p>
+        <p>Данные о прохождении воронки кандидатами представлены в таблице А.1.</p>
+
+        <div class="table-title">Таблица А.1 &ndash; Динамика прохождения этапов и показатели конверсии</div>
+        <table>
+          <thead>
+            <tr>
+              <th style="width: 8%;">№</th>
+              <th>Этап подбора персонала</th>
+              <th style="width: 18%;">Кандидатов (чел.)</th>
+              <th style="width: 18%;">Отсев (чел.)</th>
+              <th style="width: 18%;">Конверсия (%)</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${table1Rows}
+          </tbody>
+        </table>
+
+        <p>Из данных таблицы А.1 видно, что разработанный математический аппарат наглядно идентифицирует точки наибольшего отсева соискателей. Собранная статистика позволяет формулировать объективные рекомендации по оптимизации критериев первичного отбора.</p>
+
+        <div class="page-break"></div>
+
+        <div class="section-title">3. Анализ соблюдения нормативов регламентного времени (SLA)</div>
+        <p>Каждый этап воронки подбора регулируется нормативом предельного времени ожидания кандидата (Service Level Agreement, SLA), заданного в системе как <strong>${slaThreshold.toFixed(1)} дн.</strong> Оценка соблюдения регламентов приведена в таблице А.2.</p>
+
+        <div class="table-title">Таблица А.2 &ndash; Оценка средних временных задержек и отклонений от SLA</div>
+        <table>
+          <thead>
+            <tr>
+              <th style="width: 8%;">№</th>
+              <th>Этап подбора персонала</th>
+              <th style="width: 22%;">Ср. время (дн.)</th>
+              <th style="width: 22%;">Номинал SLA (дн.)</th>
+              <th style="width: 25%;">Статус контроля</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${table2Rows}
+          </tbody>
+        </table>
+
+        <p>Превышение установленных лимитов SLA на определенных этапах сигнализирует о перегруженности ответственных лиц или неоптимальности внутренней цепочки согласований.</p>
+
+        <div class="section-title">4. Аналитические выводы и экспертные рекомендации</div>
+        <p>Встроенный интеллектуальный агент автоматического формулирования выводов на основе текущих показателей сгенерировал следующие замечания:</p>
+
+        <div style="margin-top: 10px; margin-bottom: 20px; text-indent: 0;">
+          ${compiledInsights}
+        </div>
+
+        <p>Сформулированные рекомендации могут быть внедрены в бизнес-процессы HR-департамента для устранения "узких горлышек" и сокращения показателя Time-to-fill.</p>
+
+        <div class="section-title">5. Подтверждение результатов (Шаблон Акта)</div>
+        <p>Данный отчет может выступать в качестве формального подтверждения внедрения или проведения успешного тестирования в рамках дипломной работы.</p>
+
+        <div class="signature-section">
+          <table class="signature-table">
+            <tr>
+              <td style="width: 100%; font-weight: bold; text-align: right;">РАЗРАБОТЧИК:</td>
+            </tr>
+            <tr>
+              <td style="text-align: right;">
+                Студент группы ПИ-21<br/>
+                _________________ / Комаров М.Н. /<br/>
+                <br/>
+                <span style="font-size: 10pt; color: #555555;">«____» __________________ 2026 г.</span>
+              </td>
+            </tr>
+          </table>
+        </div>
+      </body>
+      </html>
+      `;
+
+      const blob = new Blob(['\uFEFF' + docHtml], { type: 'application/msword;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.setAttribute("href", url);
+      link.setAttribute("download", `Vkr_Experimental_Results_Report.doc`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      return;
+    }
+
     if (exportModalState.format === 'pdf') {
       closeExportModal();
       const originalTheme = theme;
@@ -913,17 +1131,54 @@ export default function App() {
 
     // CSV format
     let csvContent = "";
+    let currentRow = 1; // 1-based index in Excel
 
     if (exportConfig.includeFunnel) {
-      csvContent += "=== ВОРОНКА НАЙМА ===\n";
-      csvContent += "Этап;Кандидатов;Отсев;Конверсия (%)\n";
-      csvContent += detailedData.map(row => `"${row.sort}. ${row.stage}";${row.count};${row.dropoff};${row.conversion}`).join("\n") + "\n\n";
+      csvContent += "=== ВОРОНКА НАЙМА ===\n"; currentRow++;
+      csvContent += "Этап;Кандидатов;Отсев;Конверсия (%)\n"; currentRow++;
+      
+      const startDataRow = currentRow; // Row offset where the data list starts
+      detailedData.forEach((row, i) => {
+        const itemRow = startDataRow + i;
+        let countVal = row.count;
+        let dropoffVal: string | number = row.dropoff;
+        let convVal: string | number = row.conversion;
+
+        if (i === 0) {
+          dropoffVal = 0;
+          convVal = "100";
+        } else {
+          // Dropoff (Отсев): previous count - current count
+          dropoffVal = `=B${itemRow-1}-B${itemRow}`;
+          // Conversion (Конверсия %): current count / previous count * 100
+          convVal = `=IF(B${itemRow-1}>0;ROUND((B${itemRow}/B${itemRow-1})*100;1);0)`;
+        }
+        
+        csvContent += `"${row.sort}. ${row.stage}";${countVal};${dropoffVal};${convVal}\n`;
+        currentRow++;
+      });
+      
+      const lastFunnelRow = startDataRow + detailedData.length - 1;
+      csvContent += `"Итого отсеяно (СУММ)";;=SUM(C${startDataRow}:C${lastFunnelRow});\n`; currentRow++;
+      csvContent += `"Средняя конверсия (СРЗНАЧ)";;;=ROUND(AVERAGE(D${startDataRow}:D${lastFunnelRow});1)\n`; currentRow++;
+      csvContent += "\n"; currentRow++;
     }
 
     if (exportConfig.includeDelays) {
-      csvContent += "=== ВРЕМЕННЫЕ ЗАДЕРЖКИ (SLA) ===\n";
-      csvContent += "Этап;Ср. время (дни)\n";
-      csvContent += delaysData.map(row => `"${row.sort}. ${row.stage}";${row.avg_days}`).join("\n") + "\n\n";
+      csvContent += "=== ВРЕМЕННЫЕ ЗАДЕРЖКИ (SLA) ===\n"; currentRow++;
+      csvContent += "Этап;Ср. время (дни);Лимит SLA (дни);Статус контроля\n"; currentRow++;
+      
+      const startDelayRow = currentRow;
+      delaysData.forEach((row, i) => {
+        const itemRow = startDelayRow + i;
+        const statusFormula = `=IF(B${itemRow}>C${itemRow};"SLA превышен на " & ROUND(B${itemRow}-C${itemRow};1) & " дн.";"В пределах нормы")`;
+        csvContent += `"${row.sort}. ${row.stage}";${row.avg_days};${slaThreshold};"${statusFormula}"\n`;
+        currentRow++;
+      });
+      
+      const lastDelayRow = startDelayRow + delaysData.length - 1;
+      csvContent += `"Общее среднее время (СРЗНАЧ)";=ROUND(AVERAGE(B${startDelayRow}:B${lastDelayRow});1);;\n`; currentRow++;
+      csvContent += "\n"; currentRow++;
     }
 
     if (exportConfig.includeInsights) {
@@ -1255,10 +1510,19 @@ export default function App() {
             </button>
             <button 
               onClick={() => openExportModal('pdf')}
-              className="flex items-center space-x-2 text-sm text-white bg-purple-600 hover:bg-purple-700 transition-colors px-5 py-2 rounded-full shadow-sm shadow-purple-900/50"
+              className="flex items-center space-x-2 text-sm text-white bg-purple-600 hover:bg-purple-700 transition-colors px-4 py-2 rounded-full shadow-sm shadow-purple-900/50 cursor-pointer"
+              title="Печатный отчет по ГОСТ в формате PDF"
             >
               <Download className="w-4 h-4" />
               <span className="font-medium">Экспорт PDF</span>
+            </button>
+            <button 
+              onClick={() => openExportModal('word')}
+              className="flex items-center space-x-2 text-sm text-white bg-blue-600 hover:bg-blue-700 transition-colors px-4 py-2 rounded-full shadow-sm shadow-blue-950/50 cursor-pointer"
+              title="Готовый раздел диплома в формате Word (.doc)"
+            >
+              <FileText className="w-4 h-4" />
+              <span className="font-medium">Экспорт Word</span>
             </button>
           </div>
         </div>
@@ -1449,14 +1713,23 @@ export default function App() {
           <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-md overflow-hidden shadow-2xl">
             <div className="px-6 py-4 border-b border-slate-800 flex justify-between items-center">
               <h3 className="text-lg font-semibold text-white">
-                Настройки экспорта ({exportModalState.format === 'csv' ? 'CSV' : 'PDF'})
+                Настройки экспорта ({
+                  exportModalState.format === 'csv' ? 'CSV' : 
+                  exportModalState.format === 'pdf' ? 'PDF (Печать)' : 
+                  exportModalState.format === 'word' ? 'MS Word (.DOC)' : 'JSON'
+                })
               </h3>
-              <button onClick={closeExportModal} className="text-slate-400 hover:text-white transition-colors">
+              <button type="button" onClick={closeExportModal} className="text-slate-400 hover:text-white transition-colors cursor-pointer p-1 rounded-lg hover:bg-slate-850">
                 <X className="w-5 h-5" />
               </button>
             </div>
             <div className="p-6 space-y-4">
-              <div className="text-sm text-slate-400 mb-4">Выберите данные, которые необходимо экспортировать в {exportModalState.format.toUpperCase()} файл:</div>
+              <div className="text-sm text-slate-400 mb-4">
+                {exportModalState.format === 'word' 
+                  ? 'Будет автоматически сгенерировано приложение к вашему диплому («Результаты экспериментальной эксплуатации») по всем академическим стандартам ГОСТ (шрифт Times New Roman, полуторный интервал, ГОСТ-таблицы, выводы и блок подписей комиссии):'
+                  : `Выберите данные, которые необходимо экспортировать в ${exportModalState.format.toUpperCase()} файл:`
+                }
+              </div>
               
               <label className="flex items-center space-x-3 cursor-pointer group">
                 <div className={`w-5 h-5 rounded flex items-center justify-center border transition-colors ${exportConfig.includeFunnel ? 'bg-purple-600 border-purple-600' : 'bg-slate-800 border-slate-700 group-hover:border-slate-500'}`}>
@@ -1498,10 +1771,12 @@ export default function App() {
               </button>
               <button 
                 onClick={processExport}
-                className="px-5 py-2 text-sm font-medium text-white bg-purple-600 rounded-lg hover:bg-purple-700 transition-colors flex items-center"
+                className="px-5 py-2 text-sm font-medium text-white bg-purple-600 rounded-lg hover:bg-purple-700 transition-colors flex items-center cursor-pointer"
               >
                 <Download className="w-4 h-4 mr-2" />
-                Сформировать {exportModalState.format.toUpperCase()}
+                Сформировать {
+                  exportModalState.format === 'word' ? 'Word (ГОСТ)' : exportModalState.format.toUpperCase()
+                }
               </button>
             </div>
           </div>
