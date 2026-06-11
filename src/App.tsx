@@ -1211,7 +1211,7 @@ export default function App() {
   const generateInsights = () => {
     if (detailedData.length === 0) return [];
     
-    const aiInsights = [];
+    const metricsInsights = [];
     
     let maxDropoffStage = null;
     let maxDropoffCount = 0;
@@ -1228,7 +1228,7 @@ export default function App() {
     });
 
     if (maxDropoffStage) {
-      aiInsights.push({
+      metricsInsights.push({
         type: 'warning',
         icon: <AlertTriangle className="w-4 h-4 text-amber-400 mt-0.5 mr-2 flex-shrink-0" />,
         color: theme === 'dark' ? 'border-amber-500/30 bg-amber-500/10 text-amber-200' : 'border-amber-200 bg-amber-50/80 text-amber-800',
@@ -1239,7 +1239,7 @@ export default function App() {
 
     if (slaViolations.length > 0) {
       slaViolations.forEach(v => {
-        aiInsights.push({
+        metricsInsights.push({
           type: 'danger',
           icon: <ClockIcon className="w-4 h-4 text-red-400 mt-0.5 mr-2 flex-shrink-0" />,
           color: theme === 'dark' ? 'border-red-500/30 bg-red-500/10 text-red-200' : 'border-red-200 bg-red-50/80 text-red-800',
@@ -1248,7 +1248,7 @@ export default function App() {
         });
       });
     } else {
-      aiInsights.push({
+      metricsInsights.push({
         type: 'danger',
         icon: <ClockIcon className="w-4 h-4 text-red-400 mt-0.5 mr-2 flex-shrink-0" />,
         color: theme === 'dark' ? 'border-red-500/30 bg-red-500/10 text-red-200' : 'border-red-200 bg-red-50/80 text-red-800',
@@ -1257,7 +1257,7 @@ export default function App() {
       });
     }
 
-    aiInsights.push({
+    metricsInsights.push({
       type: 'info',
       icon: <Info className="w-4 h-4 text-blue-400 mt-0.5 mr-2 flex-shrink-0" />,
       color: theme === 'dark' ? 'border-blue-500/30 bg-blue-500/10 text-blue-200' : 'border-blue-200 bg-blue-50/80 text-blue-800',
@@ -1265,7 +1265,7 @@ export default function App() {
       text: `Общая конверсия составляет ${overallConversion}%. Чтобы повысить количество офферов, рассмотрите расширение верхней границы воронки (сорсинг).`,
     });
 
-    return aiInsights;
+    return metricsInsights;
   };
 
   const ClockIcon = ({ className }: { className?: string }) => (
