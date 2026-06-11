@@ -894,7 +894,7 @@ export default function App() {
 
       const compiledInsights = insights.map((ins: any) => `
         <div style="border-left: 3px solid #333333; padding-left: 10px; margin-bottom: 12px;">
-          <strong style="color: #111111;">[Автовывод] ${ins.title}:</strong>
+          <strong style="color: #111111;">${ins.title}:</strong>
           <span style="color: #333333;">${ins.text}</span>
         </div>
       `).join('');
@@ -1039,7 +1039,7 @@ export default function App() {
         <p>Превышение установленных лимитов SLA на определенных этапах сигнализирует о перегруженности ответственных лиц или неоптимальности внутренней цепочки согласований.</p>
 
         <div class="section-title">4. Аналитические выводы и экспертные рекомендации</div>
-        <p>Встроенный интеллектуальный агент автоматического формулирования выводов на основе текущих показателей сгенерировал следующие замечания:</p>
+        <p>Аналитическая подсистема логико-математического вывода на основе текущих показателей сформировала следующие замечания:</p>
 
         <div style="margin-top: 10px; margin-bottom: 20px; text-indent: 0;">
           ${compiledInsights}
