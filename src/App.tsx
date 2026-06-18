@@ -774,6 +774,11 @@ export default function App() {
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!dbStatus.connected) {
+      setIsAuthenticated(true);
+      setLoginError('');
+      return;
+    }
     if (!email || !password) {
       setLoginError('Введите данные');
       return;
@@ -796,6 +801,27 @@ export default function App() {
        setIsAuthenticated(true);
     }
   };
+
+  useEffect(() => {
+    // Автоматическая проверка статуса БД при первой загрузке
+    const checkInitialDbStatus = async () => {
+      try {
+        const res = await fetch('/api/analytics/status');
+        if (res.ok) {
+          const data = await res.json();
+          // Если БД не подключена (Режим имитации/демо), отключаем обязательную авторизацию
+          if (!data.connected) {
+            setIsAuthenticated(true);
+          }
+        } else {
+          setIsAuthenticated(true);
+        }
+      } catch {
+        setIsAuthenticated(true);
+      }
+    };
+    checkInitialDbStatus();
+  }, []);
 
   useEffect(() => {
     if (isAuthenticated) {
@@ -1317,27 +1343,42 @@ export default function App() {
               </h2>
               <p className="text-slate-400 mb-6 text-xs">Авторизация для доступа к дашборду</p>
               
+              {/* Предупреждение об отключенном режиме авторизации */}
+              {!dbStatus.connected && (
+                <div className="mb-4 p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl text-xs text-amber-400 flex items-start gap-2">
+                  <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 animate-pulse" />
+                  <div>
+                    <span className="font-semibold block text-[11px] uppercase tracking-wider">Локальная СУБД отключена</span>
+                    Верификация отключена. Вы можете войти в систему с пустыми полями.
+                  </div>
+                </div>
+              )}
+              
               <form onSubmit={handleLogin} className="space-y-4">
                 <div>
-                  <label className="block text-[10px] uppercase font-semibold tracking-wider text-slate-500 mb-1 font-medium">Email (рабочий)</label>
+                  <label className="block text-[10px] uppercase font-semibold tracking-wider text-slate-500 mb-1 font-medium">
+                    Email {!dbStatus.connected && <span className="text-slate-600">(необязательно)</span>}
+                  </label>
                   <input 
                     type="email" 
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    placeholder="hr@company.com" 
-                    className="w-full bg-slate-950/50 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:ring-1 focus:ring-purple-500 focus:border-purple-500 transition-shadow" 
-                    required 
+                    placeholder={dbStatus.connected ? "hr@company.com" : "Вход без пароля"} 
+                    className="w-full bg-slate-950/50 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:ring-1 focus:ring-purple-500 focus:border-purple-500 transition-shadow disabled:opacity-50" 
+                    required={dbStatus.connected} 
                   />
                 </div>
                 <div>
-                  <label className="block text-[10px] uppercase font-semibold tracking-wider text-slate-500 mb-1 font-medium">Пароль</label>
+                  <label className="block text-[10px] uppercase font-semibold tracking-wider text-slate-500 mb-1 font-medium">
+                    Пароль {!dbStatus.connected && <span className="text-slate-600">(необязательно)</span>}
+                  </label>
                   <input 
                     type="password" 
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    placeholder="••••••••" 
+                    placeholder={dbStatus.connected ? "••••••••" : "Оставьте пустым"} 
                     className="w-full bg-slate-950/50 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:ring-1 focus:ring-purple-500 focus:border-purple-500 transition-shadow" 
-                    required 
+                    required={dbStatus.connected} 
                   />
                 </div>
                 {loginError && <p className="text-red-400 text-xs text-center">{loginError}</p>}
@@ -1350,7 +1391,7 @@ export default function App() {
             
             <div className="mt-5 text-center border-t border-slate-800/80 pt-4">
               <span className="text-[10px] uppercase font-mono tracking-wider text-slate-400 bg-purple-950/20 px-2 py-1 rounded inline-block border border-purple-900/30">
-                ⚡ Режим симуляции: введите любые данные
+                {dbStatus.connected ? '🔌 База данных Активна (XAMPP)' : '⚡ Режим автоматического входа при офлайне'}
               </span>
             </div>
           </div>
